@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="ru">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Чат с индикатором печати и онлайн списком</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background: #f4f7f6;
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            justify-content: center;
+        }
+
+        .chat-container {
+            width: 100%;
+            max-width: 800px;
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
+            display: flex;
+            gap: 20px;
+        }
+
+        .main-chat {
+            flex: 2;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .sidebar {
+            flex: 1;
+            border-left: 1px solid #eee;
+            padding-left: 15px;
+        }
+
+        h2,
+        h3 {
+            color: #333;
+            margin-top: 0;
+        }
+
+        #form-box {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 15px;
+        }
+
+        input[type="text"] {
+            flex: 1;
+            padding: 10px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+
+        button {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 15px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+
+        button:hover {
+            background: #0056b3;
+        }
+
+        #messages {
+            list-style-type: none;
+            padding: 0;
+            height: 320px;
+            overflow-y: auto;
+            border: 1px solid #eee;
+            border-radius: 4px;
+            padding: 10px;
+            background: #fafafa;
+            margin-bottom: 5px;
+        }
+
+        #messages li {
+            padding: 6px 10px;
+            margin-bottom: 6px;
+            border-radius: 4px;
+            background: #e9ecef;
+            word-break: break-all;
+        }
+
+        .system-msg {
+            color: #6c757d;
+            font-style: italic;
+            background: #f8f9fa !important;
+            text-align: center;
+        }
+
+        #typing-indicator {
+            height: 20px;
+            font-size: 13px;
+            color: #666;
+            font-style: italic;
+            margin-bottom: 10px;
+        }
+
+        #online-list {
+            list-style-type: none;
+            padding: 0;
+            font-size: 14px;
+            color: #333;
+        }
+
+        #online-list li {
+            margin-bottom: 5px;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+
+        .dot {
+            height: 8px;
+            width: 8px;
+            background-color: #28a745;
+            border-radius: 50%;
+            display: inline-block;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="chat-container">
+        <div class="main-chat">
+            <h2>💬 Чат</h2>
+            <div id="form-box">
+                <input type="text" id="usernameInput" placeholder="Ваше имя..." autocomplete="off" />
+                <button onclick="connectChat()">Войти</button>
+            </div>
+
+            <div id="chat-box" style="display: none;">
+                <ul id="messages"></ul>
+                <div id="typing-indicator"></div>
+                <form id="chatForm" action="" onsubmit="sendMessage(event)">
+                    <div style="display: flex; gap: 10px;">
+                        <input type="text" id="messageText" autocomplete="off" placeholder="Введите сообщение..."
+                            oninput="notifyTyping()" />
+                        <button>Отправить</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <div class="sidebar" id="sidebar-box" style="display: none;">
+            <h3>🟢 Онлайн (<span id="online-count">0</span>)</h3>
+            <ul id="online-list"></ul>
+        </div>
+    </div>
+
+    <script>
+        let ws = null;
+        let username = "";
+        let typingTimeout = null;
+
+        function connectChat() {
+            const nameInput = document.getElementById("usernameInput").value.trim();
+            if (!nameInput) {
+                alert("Пожалуйста, введите имя!");
+                return;
+            }
+            username = nameInput;
+
+            const protocol = window.location.protocol === "https:" ? "wss://" : "ws://";
+            const wsUrl = protocol + window.location.host + "/ws/" + encodeURIComponent(username);
+
+            ws = new WebSocket(wsUrl);
+
+            ws.onmessage = function (event) {
+                const data = JSON.parse(event.data);
+                const messages = document.getElementById('messages');
+
+                if (data.type === "message" || data.type === "system") {
+                    const li = document.createElement('li');
+                    if (data.type === "system") {
+                        li.className = "system-msg";
+                        li.textContent = data.text;
+                    } else {
+                        li.textContent = `${data.sender}: ${data.text}`;
+                    }
+                    messages.appendChild(li);
+                    messages.scrollTop = messages.scrollHeight;
+                }
+                else if (data.type === "online_list") {
+                    const list = document.getElementById('online-list');
+                    list.innerHTML = "";
+                    document.getElementById('online-count').textContent = data.users.length;
+                    data.users.forEach(user => {
+                        const li = document.createElement('li');
+                        li.innerHTML = `<span class="dot"></span> ${user}`;
+                        list.appendChild(li);
+                    });
+                }
+                else if (data.type === "typing") {
+                    if (data.sender !== username) {
+                        const indicator = document.getElementById('typing-indicator');
+                        indicator.textContent = `✍️ ${data.sender} печатает сообщение...`;
+
+                        clearTimeout(window.typingTimer);
+                        window.typingTimer = setTimeout(() => {
+                            indicator.textContent = "";
+                        }, 1500);
+                    }
+                }
+            };
+
+            document.getElementById("form-box").style.display = "none";
+            document.getElementById("chat-box").style.display = "block";
+            document.getElementById("sidebar-box").style.display = "block";
+        }
+
+        function sendMessage(event) {
+            event.preventDefault();
+            const input = document.getElementById("messageText");
+            if (input.value.trim() && ws) {
+                ws.send(JSON.stringify({ action: "message", text: input.value }));
+                input.value = '';
+            }
+        }
+
+        function notifyTyping() {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                // Отправляем сигнал печати не чаще, чем раз в секунду, чтобы не перегружать сервер
+                if (!window.isTypingSent) {
+                    ws.send(JSON.stringify({ action: "typing" }));
+                    window.isTypingSent = true;
+                    setTimeout(() => { window.isTypingSent = false; }, 1000);
+                }
+            }
+        }
+    </script>
+</body>
+
+</html>
